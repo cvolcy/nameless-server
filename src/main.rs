@@ -6,6 +6,7 @@ use std::{
 };
 use chrono::Utc;
 use clap::Parser;
+use nameless_server::ThreadPool;
 
 #[derive(Parser)]
 #[derive(Debug)]
@@ -13,26 +14,31 @@ use clap::Parser;
 struct Args {
 
     #[arg(short, long, value_parser = clap::value_parser!(u16).range(1..), default_value_t = 7878)]
-    port: u16
+    port: u16,
+
+    #[arg(short('n'), long, default_value_t = 4)]
+    pool: usize
 }
 
 fn main() {
     let cli = Args::parse();
     println!("{:?}", cli);
     
-    let parsed_addr = format!("0.0.0.0:{}", cli.port);
-    start_http_server(parsed_addr);
+    start_http_server(cli);
 }
 
-fn start_http_server(addr: String) {
-    let listener = TcpListener::bind(&addr).unwrap();
-    println!("server running at http://{addr}");
+fn start_http_server(cli: Args) {
+    let parsed_addr = format!("0.0.0.0:{}", cli.port);
+    let listener = TcpListener::bind(&parsed_addr).unwrap();
+    println!("server running at http://{parsed_addr}");
+
+    let pool = ThreadPool::new(cli.pool);
     for stream in listener.incoming() {
         let stream = stream.unwrap();
-        
-        thread::spawn(|| {
+
+        pool.execute(|| {
             handle_connection(stream);
-        });
+        })
     }
 }
 
