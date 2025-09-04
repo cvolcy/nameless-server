@@ -2,8 +2,9 @@ use std::{
     fs,
     io::{BufRead, BufReader, Write},
     net::{TcpListener, TcpStream},
-    thread, time::SystemTime
+    thread
 };
+use chrono::Utc;
 use clap::Parser;
 
 #[derive(Parser)]
@@ -39,7 +40,7 @@ fn handle_connection(mut stream: TcpStream) {
     let buf_reader = BufReader::new(&stream);
     let request_line = buf_reader.lines().next().unwrap().unwrap();
 
-    println!("[{:?}] {}", SystemTime::now(), request_line);
+    println!("[{}] {}", Utc::now().to_rfc3339(), request_line);
 
     let (status, filename) = if request_line == "GET / HTTP/1.1" {
         ("HTTP/1.1 200 OK", "hello.html")
