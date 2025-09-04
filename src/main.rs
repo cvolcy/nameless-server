@@ -38,7 +38,10 @@ fn start_http_server(addr: String) {
 
 fn handle_connection(mut stream: TcpStream) {
     let buf_reader = BufReader::new(&stream);
-    let request_line = buf_reader.lines().next().unwrap().unwrap();
+    let request_line = match buf_reader.lines().next() {
+        Some(result) => result.unwrap(),
+        _ => String::new()
+    };
 
     println!("[{}] {}", Utc::now().to_rfc3339(), request_line);
 
