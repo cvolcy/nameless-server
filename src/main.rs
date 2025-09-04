@@ -1,8 +1,7 @@
 use std::{
     fs,
     io::{BufRead, BufReader, Write},
-    net::{TcpListener, TcpStream},
-    thread
+    net::{TcpListener, TcpStream}
 };
 use chrono::Utc;
 use clap::Parser;

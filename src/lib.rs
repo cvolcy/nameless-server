@@ -1,3 +1,4 @@
+use core::fmt;
 use std::{sync::{mpsc::{self, Receiver}, Arc, Mutex}, thread};
 
 pub struct ThreadPool {
@@ -40,11 +41,32 @@ impl Worker {
         let thread = thread::spawn(move || {
             loop {
                 let job = receiver.lock().unwrap().recv().unwrap();
+
+                println!("Worker {id} got a job; executing.");
+
                 job();
             }
         });
 
         Worker { id, thread }
+    }
+}
+
+impl fmt::Debug for ThreadPool {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("ThreadPool")
+            .field("workers", &self.workers)
+            .field("size", &self.workers.len())
+            .finish()
+    }
+}
+
+impl fmt::Debug for Worker {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Worker")
+            .field("id", &self.id)
+            .field("threads", &self.thread)
+            .finish()
     }
 }
 
