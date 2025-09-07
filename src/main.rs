@@ -29,7 +29,10 @@ struct Args {
 
 fn main() {
     let cli = Args::parse();
-    println!("{:?}", cli);
+
+    if cli.verbose {
+        println!("{:?}", cli);
+    }
     
     start_http_server(cli);
 }
@@ -37,7 +40,7 @@ fn main() {
 fn start_http_server(cli: Args) {
     let parsed_addr = format!("0.0.0.0:{}", cli.port);
     let listener = TcpListener::bind(&parsed_addr).unwrap();
-    println!("server running at http://{parsed_addr}");
+    println!("server running at http://{parsed_addr}\n");
 
     let pool = ThreadPool::new(cli.pool);
     for stream in listener.incoming() {
@@ -62,7 +65,7 @@ fn handle_connection(mut stream: TcpStream, default_filename: &str) {
         _ => String::new()
     };
 
-    println!("[{}] {}", Utc::now().to_rfc3339(), request_line);
+    println!("[{}] Request   - {}", Utc::now().to_rfc3339(), request_line);
 
     let (method, filename, http_version) = parse_request_line(request_line, default_filename);
 
@@ -81,6 +84,7 @@ fn handle_connection(mut stream: TcpStream, default_filename: &str) {
     };
 
     let length = contents.len();
+    println!("[{}]  Response - {} {}", Utc::now().to_rfc3339(), status, length);
 
     let response =
         format!("{status}\r\nContent-Length: {length}\r\n\r\n{contents}");
