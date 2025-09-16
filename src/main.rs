@@ -1,13 +1,17 @@
 use std::{
+    collections::HashMap,
     fs,
     io::{BufRead, BufReader, Write},
     net::{TcpListener, TcpStream},
-    path::PathBuf
+    path::PathBuf,
 };
+
 use chrono::Utc;
 use clap::Parser;
 use nameless_server::ThreadPool;
 use regex::Regex;
+use lazy_static::lazy_static;
+
 const DEFAULT_PORT: u16 = 7878;
 const DEFAULT_POOL_SIZE: usize = 4;
 const DEFAULT_FILENAME: &str = "index.html";
@@ -40,7 +44,7 @@ fn main() {
     if cli.verbose {
         println!("{:?}", cli);
     }
-    
+
     start_http_server(cli);
 }
 
@@ -59,25 +63,42 @@ fn start_http_server(cli: Args) {
     }
 }
 
-static ASSETS_DATA: [(&'static str, &'static str); 3] = [
-    ("./assets/index.html", include_str!("../src/assets/index.html")),
-    ("./assets/404.html", include_str!("../src/assets/404.html")),
-    ("./assets/w3.css", include_str!("../src/assets/w3.css"))
-];
+lazy_static! {
+    static ref ASSETS_DATA: HashMap<&'static str, &'static str> = {
+        let mut map = HashMap::new();
+        map.insert("index.html", include_str!("../src/assets/index.html"));
+        map.insert("404.html", include_str!("../src/assets/404.html"));
+        map.insert("w3.css", include_str!("../src/assets/w3.css"));
+        map
+    };
+}
 
 fn handle_connection(mut stream: TcpStream, default_filename: &str) {
-    let buf_reader = BufReader::new(&stream);
-    let request_line = match buf_reader.lines().next() {
-        Some(result) => result.unwrap(),
-        _ => String::new()
-    };
-
+    let request_line = read_request_line(&mut stream);
     println!("[{}] Request   - {}", Utc::now().to_rfc3339(), request_line);
 
     let (method, filename, http_version) = parse_request_line(request_line, default_filename);
 
-    let mut status = format!("HTTP/{} 200 OK", http_version);
-    let contents = match method.as_str() {
+    let (status, contents) = get_response_content(&filename, &method, &http_version);
+
+    let length = contents.len();
+    println!("[{}]  Response - {} {}", Utc::now().to_rfc3339(), status, length);
+
+    let response = build_response(&status, length, &contents);
+    send_response(&mut stream, &response);
+}
+
+fn read_request_line(stream: &mut TcpStream) -> String {
+    let buf_reader = BufReader::new(stream);
+    buf_reader
+        .lines()
+        .next()
+        .map_or_else(String::new, |result| result.unwrap_or_else(|_| String::new()))
+}
+
+fn get_response_content(filename: &str, method: &str, http_version: &str) -> (String, String) {
+    let mut status = format!("HTTP/{} {}", http_version, HTTP_STATUS_OK);
+    let contents = match method {
         "GET" => {
             get_file_contents(filename).unwrap_or_else(|_| {
                 status = format!("HTTP/{} {}", http_version, HTTP_STATUS_NOT_FOUND);
@@ -89,17 +110,23 @@ fn handle_connection(mut stream: TcpStream, default_filename: &str) {
         },
         _ => String::from(*ASSETS_DATA.get(NOT_FOUND_FILENAME).unwrap())
     };
+    (status, contents)
+}
 
-    let length = contents.len();
-    println!("[{}]  Response - {} {}", Utc::now().to_rfc3339(), status, length);
+fn build_response(status: &str, length: usize, contents: &str) -> String {
+    format!("{status}\r\nContent-Length: {length}\r\n\r\n{contents}")
+}
 
-    let response =
-        format!("{status}\r\nContent-Length: {length}\r\n\r\n{contents}");
-
+fn send_response(stream: &mut TcpStream, response: &str) {
     stream.write_all(response.as_bytes()).unwrap();
 }
 
 fn get_file_contents(base_filename: &str) -> Result<String, std::io::Error> {
+    // Check embedded assets first
+    if let Some(content) = ASSETS_DATA.get(base_filename) {
+        return Ok(content.to_string());
+    }
+
     let paths_to_check = [
         PathBuf::from(format!("./src/assets/{}", base_filename)),
         PathBuf::from(format!("./{}", base_filename)),
@@ -112,13 +139,10 @@ fn get_file_contents(base_filename: &str) -> Result<String, std::io::Error> {
         }
     }
 
-    // If not found on filesystem, check ASSETS_DATA
-    let asset_data_key = format!("./assets/{}", base_filename);
-    if let Some((_, content)) = ASSETS_DATA.iter().find(|(key, _)| *key == asset_data_key) {
-        return Ok(content.to_string());
-    }
-
-    Err(std::io::Error::new(std::io::ErrorKind::NotFound, "File not found in any specified path or embedded assets"))
+    Err(std::io::Error::new(
+        std::io::ErrorKind::NotFound,
+        "File not found in any specified path or embedded assets",
+    ))
 }
 
 fn parse_request_line(request_line: String, default_filename: &str) -> (String, String, String) {
@@ -128,32 +152,24 @@ fn parse_request_line(request_line: String, default_filename: &str) -> (String, 
     let method: String;
     let http_version: String;
 
-    let mut path = match caps {
+    let path_str = match caps {
         Some(caps) => {
             method = caps.get(1).map_or(String::from("GET"), |m| m.as_str().to_string());
-            http_version = caps.get(3).map_or(String::from("1.1"), |m| m.as_str().to_string());
+            http_version = caps.get(3).map_or(String::from(HTTP_VERSION_1_1), |m| m.as_str().to_string());
             caps.get(2).map_or("/", |m| m.as_str()).to_string()
         },
-        None => return (String::from("GET"), "404.html".to_string(), String::from("1.1")),
+        None => return (String::from("GET"), NOT_FOUND_FILENAME.to_string(), String::from(HTTP_VERSION_1_1)),
     };
 
-    if path == "/" {
+    if path_str == "/" {
         return (method, default_filename.to_string(), http_version);
     }
 
-    if path.starts_with('/') {
-        path.remove(0);
+    let mut path_buf = PathBuf::from(path_str.trim_start_matches('/'));
+
+    if path_buf.extension().is_none() {
+        path_buf.set_extension("html");
     }
 
-    if path.ends_with('/') {
-        path.pop();
-    }
-
-    let has_extension = path.contains('.');
-
-    if !has_extension {
-        path.push_str(".html");
-    }
-
-    (method, path, http_version)
+    (method, path_buf.to_str().unwrap_or(NOT_FOUND_FILENAME).to_string(), http_version)
 }

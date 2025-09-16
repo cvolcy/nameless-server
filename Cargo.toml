@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-chrono = "0.4.41"
-clap = { version = "4.5.47", features = ["derive"] }
-regex = "1.11.2"
+chrono = { version = "0.4.31", features = ["serde"] }
+clap = { version = "4.4.11", features = ["derive"] }
+regex = "1.10.2"
+lazy_static = "1.4.0"
