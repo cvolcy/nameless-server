@@ -8,19 +8,26 @@ use chrono::Utc;
 use clap::Parser;
 use nameless_server::ThreadPool;
 use regex::Regex;
+const DEFAULT_PORT: u16 = 7878;
+const DEFAULT_POOL_SIZE: usize = 4;
+const DEFAULT_FILENAME: &str = "index.html";
+const NOT_FOUND_FILENAME: &str = "404.html";
+const HTTP_VERSION_1_1: &str = "1.1";
+const HTTP_STATUS_OK: &str = "200 OK";
+const HTTP_STATUS_NOT_FOUND: &str = "404 NOT FOUND";
 
 #[derive(Parser)]
 #[derive(Debug)]
 #[command(version, about, long_about = None)]
 struct Args {
 
-    #[arg(short, long, value_parser = clap::value_parser!(u16).range(1..), default_value_t = 7878)]
+    #[arg(short, long, value_parser = clap::value_parser!(u16).range(1..), default_value_t = DEFAULT_PORT)]
     port: u16,
 
-    #[arg(short('n'), long, default_value_t = 4)]
+    #[arg(short('n'), long, default_value_t = DEFAULT_POOL_SIZE)]
     pool: usize,
 
-    #[arg(short('d'), long, default_value_t = String::from("index.html"))]
+    #[arg(short('d'), long, default_value_t = String::from(DEFAULT_FILENAME))]
     default: String,
 
     #[arg(long, default_value_t = false)]
@@ -72,15 +79,15 @@ fn handle_connection(mut stream: TcpStream, default_filename: &str) {
     let mut status = format!("HTTP/{} 200 OK", http_version);
     let contents = match method.as_str() {
         "GET" => {
-            get_file_contents(&filename).unwrap_or_else(|_| {
-                status = format!("HTTP/{} 404 NOT FOUND", http_version);
-                match get_file_contents("404") {
+            get_file_contents(filename).unwrap_or_else(|_| {
+                status = format!("HTTP/{} {}", http_version, HTTP_STATUS_NOT_FOUND);
+                match get_file_contents(NOT_FOUND_FILENAME) {
                     Ok(content) => content,
-                    Err(_) => String::from(ASSETS_DATA.get(1).unwrap().1)
+                    Err(_) => String::from(*ASSETS_DATA.get(NOT_FOUND_FILENAME).unwrap())
                 }
             })
         },
-        _ => String::from(ASSETS_DATA.get(1).unwrap().1)
+        _ => String::from(*ASSETS_DATA.get(NOT_FOUND_FILENAME).unwrap())
     };
 
     let length = contents.len();
